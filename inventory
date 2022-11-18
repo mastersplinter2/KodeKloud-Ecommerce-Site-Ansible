@@ -1,2 +1,2 @@
-ansible-controller ansible_connection=local ansible_host=localhost
-ansible-controller mysql_port=3306 http_port=80
+ansible-target2 ansible_connection=local ansible_host=localhost
+ansible-target2 mysql_port=3306 http_port=80
