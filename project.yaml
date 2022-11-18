@@ -1,0 +1,172 @@
+---
+
+- name: Automate the Deployment of the KodeKloud E-Commerce Application
+  hosts: all
+  become: true
+  become_user: root
+  tasks:
+    - name: Update Redhat
+      dnf: update_cache=yes
+      ignore_errors: yes
+      when: ansible_os_family == "RedHat"
+    - name: Update Redhat
+      apt: update_cache=yes
+      ignore_errors: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install FirewallD on Redhat
+      dnf:
+        name: firewalld
+        state: present
+      when: ansible_os_family == "RedHat"
+    - name: Install FirewallD on Debian
+      apt:
+        name: firewalld
+        state: present
+      when: ansible_os_family == "Debian"
+    - name: Start FirewallD Service
+      service:
+        name: firewalld
+        state: started
+    - name: Enable FirewallD Service
+      service:
+        name: firewalld
+        enabled: yes
+
+    - name: Install MariaDB on RedHat
+      dnf:
+        name: mariadb-server
+        state: latest
+      when: ansible_os_family == "RedHat"
+    - name: Install MariaDB on Debian
+      apt:
+        name: mariadb-server
+        state: latest
+      when: ansible_os_family == "Debian"
+    - name: Start MariaDB Service
+      service:
+        name: mariadb
+        state: started
+    - name: Enable MariaDB Service
+      service:
+        name: mariadb
+        enabled: yes
+
+    - name: Configure FirewallD for Database Port
+      firewalld:
+        zone: public
+        port: "{{ mysql_port}}/tcp" #The Port# is kept in the inventory file
+        permanent: true
+        state: enabled
+    - name: Reload FirewallD
+      systemd:
+        name: firewalld
+        state: restarted
+
+    - name: Install PyMySQL MariaDB Dependency on RedHat
+      dnf:
+        name: python3-mysql
+        state: present
+      when: ansible_os_family == "RedHat"
+    - name: Install PyMySQL MariaDB Dependency on Debian
+      apt:
+        name: python3-mysql
+        state: present
+      when: ansible_os_family == "Debian"
+    - name: Configure Database
+      mysql_db:
+        name: ecomdb
+        state: present
+    - name: Create Ecomuser on EcomDB
+      mysql_user:
+        name: ecomuser
+        password: ecompassword
+        priv: '*.*:ALL'
+        state: present
+    - name: Flush Privileges
+      mysql_db:
+        name: FLUSH PRIVILEGES;
+    - name: 'Exit SQL'
+      mysql_db:
+        name: exit
+
+    - name: Create the db-load-script.sql # Creates a .sql file in the current directory that creates a SQL table and inserts data in the table
+      shell:
+        cmd: |
+          cat > db-load-script.sql <<EOF
+          USE ecomdb;
+          CREATE TABLE products (id mediumint(8) unsigned NOT NULL auto_increment,Name varchar(255) default NULL,Price varchar(255) default NULL, ImageUrl varchar(255) default NULL,PRIMARY KEY (id)) AUTO_INCREMENT=1;
+          INSERT INTO products (Name,Price,ImageUrl) VALUES ("Laptop","100","c-1.png"),("Drone","200","c-2.png"),("VR","300","c-3.png"),("Tablet","50","c-5.png"),("Watch","90","c-6.png"),("Phone Covers","20","c-7.png"),("Phone","80","c-8.png"),("Laptop","150","c-4.png");
+          EOF
+    - name: Run sql Script
+      shell: mysql < db-load-script.sql
+
+    - name: Install Required Packages for Webserver on RedHat
+      dnf:
+        name:
+          - httpd
+          - php
+          - php-mysqlnd
+        state: latest
+      when: ansible_os_family == "RedHat"
+    - name: Install Required Packages for Webserver on Debian
+      apt:
+        name:
+          - httpd
+          - php
+          - php-mysqlnd
+        state: latest
+      when: ansible_os_family == "Debian"
+
+    - name: Configure FirewallD for Webserver Access
+      firewalld:
+        zone: public
+        port: "{{ http_port }}/tcp" #The Port# is kept in the inventory file
+        permanent: true
+        state: enabled
+    - name: Reload FirewallD
+      systemd:
+        name: firewalld
+        state: restarted
+
+    - name: Configure httpd
+      lineinfile:
+        path: /etc/httpd/conf/httpd.conf
+        regex: "   DirectoryIndex index.html"
+        line:  "   DirectoryIndex index.php" #Adds three spaces before text to better align the PHP code
+        state: present
+    - name: Start httpd
+      service:
+          name: httpd
+          state: restarted
+    - name: Enable  httpd
+      service:
+        name: httpd
+        enabled: yes
+
+    - name: Install Git on RedHat
+      dnf:
+        name: git
+        state: latest
+      when: ansible_os_family == "RedHat"
+    - name: Install Git
+      apt:
+        name: git
+        state: latest
+      when: ansible_os_family == "Debian"
+    - name: Clone a github repository
+      git:
+        repo: https://github.com/kodekloudhub/learning-app-ecommerce.git
+        dest: /var/www/html/
+        clone: yes
+        update: yes
+
+    - name: Update index.php
+      shell: sed -i 's/172.20.1.101/localhost/g' /var/www/html/index.php # I know this is not best practice but it was the only way I could get it to work
+
+    - name: Create Test
+      get_url:
+        url: http://localhost
+        dest: ./test
+    - name: Cat Test
+      shell: cat ./test > /dev/tty
